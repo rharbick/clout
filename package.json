@@ -1,0 +1,23 @@
+{
+  "name": "clout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Jackbox-style party game: pick a photo, caption someone else's like it's a social post, then like your favorite.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "bots": "node scripts/bots.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

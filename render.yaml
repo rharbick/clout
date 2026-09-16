@@ -1,0 +1,13 @@
+# Render Blueprint: deploy this repo as a web service.
+# Render can also be pointed at the repo manually with the same settings.
+services:
+  - type: web
+    name: clout
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22

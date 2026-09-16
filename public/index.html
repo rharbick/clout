@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e0b1a">
+  <title>clout — the caption game</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❤️</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">clout</div>
+    <button class="room-badge" id="roomBadge" type="button" hidden></button>
+    <div class="timer" id="timer" hidden></div>
+    <div class="timebar"><div id="timebar"></div></div>
+  </header>
+  <div class="banner" id="connBanner" hidden>Reconnecting…</div>
+  <main id="app"></main>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
