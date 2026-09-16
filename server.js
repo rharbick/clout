@@ -330,9 +330,17 @@ function maybeAdvance(room) {
 
 // ---- What each player gets to see ------------------------------------------
 
-// Posts stay anonymous until the reveal; you only learn which one is yours.
-function anonymousPosts(rd, me) {
-  return rd.posts.map((p) => ({ id: p.id, photo: p.photo, caption: p.caption, mine: p.authorId === me.id }));
+// Each post is shown as posted by the player who picked the photo. Who actually
+// wrote the caption stays secret until the reveal; you only learn which one is yours.
+function anonymousPosts(room, me) {
+  return room.roundData.posts.map((p) => ({
+    id: p.id,
+    photo: p.photo,
+    caption: p.caption,
+    poster: room.players.get(p.photographerId)?.name ?? '???',
+    posterId: p.photographerId,
+    mine: p.authorId === me.id,
+  }));
 }
 
 function viewFor(room, me) {
@@ -347,6 +355,7 @@ function viewFor(room, me) {
     author: nameOf(r.authorId),
     authorId: r.authorId,
     photographer: nameOf(r.photographerId),
+    photographerId: r.photographerId,
     likedBy: r.likedBy.map(nameOf),
     likes: r.likedBy.length,
     viral: r.viral,
@@ -380,14 +389,16 @@ function viewFor(room, me) {
   if (room.phase === 'pick' && playing) {
     view.pick = { options: rd.options.get(me.id), chosen: rd.picks.get(me.id) ?? -1 };
   } else if (room.phase === 'caption' && playing) {
+    const posterId = rd.assignments.get(me.id);
     view.caption = {
-      photo: pickedPhoto(rd, rd.assignments.get(me.id)),
+      as: { id: posterId, name: nameOf(posterId) },   // you write this caption in their name
+      photo: pickedPhoto(rd, posterId),
       submitted: rd.captions.get(me.id) ?? null,
       draft: rd.drafts.get(me.id) ?? '',
     };
   } else if (room.phase === 'showcase') {
     view.showcase = {
-      posts: anonymousPosts(rd, me),
+      posts: anonymousPosts(room, me),
       startedAt: room.phaseStartedAt,
       perPost: SHOWCASE_SECONDS_PER_POST * 1000,
     };
@@ -395,7 +406,7 @@ function viewFor(room, me) {
     view.vote = {
       canVote: playing,
       myVote: rd.votes.get(me.id) ?? null,
-      posts: anonymousPosts(rd, me),
+      posts: anonymousPosts(room, me),
     };
   } else if (room.phase === 'results') {
     view.results = rd.results.map(publicPost);

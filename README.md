@@ -3,10 +3,10 @@
 A Jackbox-style party game for phones. Every round:
 
 1. **Pick.** Each player gets two photos and picks one.
-2. **Caption.** Every player gets *someone else's* pick and captions it like it's their own social media post.
-3. **Showcase.** The posts play one at a time like a story reel, in sync on every phone, so the whole room reads each one together.
-4. **Like.** All the posts show up in an anonymous feed, and everyone likes their favorite (you can't like your own). Tap the heart or double-tap the photo.
-5. **Reveal.** Posters are revealed. Each like is +100 followers, and the most-liked post goes 🔥 viral for a +200 bonus.
+2. **Caption.** Every player gets *someone else's* pick and writes its caption **as that person**. The post goes up under their name, so you're putting words in their mouth.
+3. **Showcase.** The posts play under the names they were posted as, one at a time like a story reel, in sync on every phone, so the whole room reads each one together.
+4. **Like.** All the posts show up in a feed, each one looking like the photo picker posted it, and everyone likes their favorite (you can't like your own). Tap the heart or double-tap the photo.
+5. **Reveal.** The real caption writers are revealed, and they get the points. Each like is +100 followers, and the most-liked post goes 🔥 viral for a +200 bonus.
 
 Most followers after the last round wins. It takes 3–10 players.
 

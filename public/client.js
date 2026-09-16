@@ -63,10 +63,6 @@ function heartIcon() {
   return svg;
 }
 
-const ANON_A = ['sleepy', 'feral', 'crispy', 'haunted', 'moist', 'chaotic', 'soggy', 'unhinged', 'cozy', 'spicy', 'dramatic', 'suspicious'];
-const ANON_B = ['waffle', 'goblin', 'raccoon', 'noodle', 'possum', 'gremlin', 'pickle', 'muffin', 'toaster', 'burrito', 'pigeon', 'potato'];
-const anonHandle = (seed) => `@${ANON_A[hue(seed + 'a') % ANON_A.length]}_${ANON_B[hue(seed + 'b') % ANON_B.length]}`;
-
 let toastTimer;
 function toast(msg) {
   if (!msg) return;
@@ -238,8 +234,8 @@ function scoreboard(roundPoints = new Map()) {
 function resultCard(r) {
   return h('article', { class: `post${r.viral ? ' viral' : ''}` },
     h('header', { class: 'post-head' },
-      avatar(r.author, r.authorId),
-      h('div', { class: 'who' }, h('b', {}, handle(r.author)), h('span', { class: 'muted small' }, `📸 photo picked by ${r.photographer}`)),
+      avatar(r.photographer, r.photographerId),
+      h('div', { class: 'who' }, h('b', {}, handle(r.photographer))),
       r.viral ? h('span', { class: 'badge' }, '🔥 viral') : null),
     h('img', { class: 'post-img', src: r.photo, alt: '' }),
     h('div', { class: 'post-actions' },
@@ -247,8 +243,16 @@ function resultCard(r) {
       h('b', {}, plural(r.likes, 'like')),
       h('span', { class: 'points' }, `+${fmt(r.points)}`)),
     r.likes ? h('p', { class: 'liked-by small' }, 'Liked by ', h('b', {}, r.likedBy.join(', '))) : null,
-    h('p', { class: 'caption-text' }, h('b', {}, handle(r.author)), ' ', richText(r.caption),
-      r.auto ? h('span', { class: 'muted small' }, '  (ran out of time)') : null));
+    h('p', { class: 'caption-text' }, h('b', {}, handle(r.photographer)), ' ', richText(r.caption)),
+    h('p', { class: 'reveal small' }, '✍️ Actually written by ', h('b', {}, r.author),
+      r.auto ? ' (who ran out of time)' : null));
+}
+
+// Before the reveal, a post looks like the photo picker posted it. Who wrote it stays hidden.
+function postedAsHead(post) {
+  return h('header', { class: 'post-head' },
+    avatar(post.poster, post.posterId),
+    h('div', { class: 'who' }, h('b', {}, handle(post.poster))));
 }
 
 // ---- Screens ----------------------------------------------------------------
@@ -296,7 +300,7 @@ const SCREENS = {
         h('h3', {}, 'How to play'),
         h('ol', {},
           h('li', {}, h('b', {}, '📸 Pick'), ' one of two photos.'),
-          h('li', {}, h('b', {}, '✍️ Caption'), " someone else's pick like you're the one who posted it."),
+          h('li', {}, h('b', {}, '✍️ Caption'), " someone else's pick, posting as them. Put words in their mouth."),
           h('li', {}, h('b', {}, '❤️ Like'), ' your favorite post. Every like is +100 followers.'),
           h('li', {}, h('b', {}, '👑 Most followers'), ' at the end wins.'))));
   },
@@ -361,25 +365,26 @@ const SCREENS = {
     return h('section', { class: 'screen' },
       roundLabel(),
       h('h2', { class: 'title' }, 'Pick a photo'),
-      h('p', { class: 'muted' }, 'Someone else has to caption whichever one you choose. Choose violence.'),
+      h('p', { class: 'muted' }, 'Someone else will post it as you, with a caption they wrote. Choose wisely.'),
       h('div', { class: 'pick-grid' }, tiles));
   },
 
   caption() {
     if (!state.caption) return waitingScreen('🍿', "You're in!", "You'll get dealt in next round.");
     if (state.caption.submitted) return waitingScreen('✍️', 'Posted!', 'Waiting on everyone else to finish their captions…');
+    const as = state.caption.as;
 
     const preview = h('p', { class: 'caption-text' });
     const count = h('span', { class: 'muted small' });
     const box = h('textarea', {
       class: 'input caption-input', maxlength: 150, rows: 3, enterkeyhint: 'send',
-      placeholder: 'Write it like you posted it… #blessed',
+      placeholder: `Write ${as.name}'s caption… #blessed`,
     });
     box.value = state.caption.draft;
     const postBtn = h('button', { class: 'btn primary', onclick: post }, 'Post');
 
     function sync() {
-      preview.replaceChildren(h('b', {}, handle(me().name)), ' ',
+      preview.replaceChildren(h('b', {}, handle(as.name)), ' ',
         box.value.trim() ? richText(box.value) : h('span', { class: 'muted' }, 'your caption shows up here'));
       count.textContent = `${box.value.length}/150`;
     }
@@ -402,12 +407,12 @@ const SCREENS = {
 
     return h('section', { class: 'screen' },
       roundLabel(),
-      h('h2', { class: 'title' }, 'Caption this'),
-      h('p', { class: 'muted' }, "This is your post now. What are you saying about it?"),
+      h('h2', { class: 'title' }, `Post as ${as.name}`),
+      h('p', { class: 'muted' }, `${as.name} picked this photo. Write the caption they're "posting" it with.`),
       h('article', { class: 'post' },
         h('header', { class: 'post-head' },
-          avatar(me().name, me().id),
-          h('div', { class: 'who' }, h('b', {}, handle(me().name)), h('span', { class: 'muted small' }, 'just now'))),
+          avatar(as.name, as.id),
+          h('div', { class: 'who' }, h('b', {}, handle(as.name)), h('span', { class: 'muted small' }, `you're posting as ${as.name}`))),
         h('img', { class: 'post-img', src: state.caption.photo, alt: 'The photo you are captioning' }),
         h('div', { class: 'post-actions' }, h('span', { class: 'heart static' }, heartIcon())),
         preview),
@@ -435,13 +440,9 @@ const SCREENS = {
       const post = posts[idx];
       counter.textContent = `${idx + 1} of ${posts.length}`;
       stage.replaceChildren(h('article', { class: `post story${post.mine ? ' mine' : ''}` },
-        h('header', { class: 'post-head' },
-          avatar('?', post.id, 'anon'),
-          h('div', { class: 'who' },
-            h('b', {}, post.mine ? 'you (shh)' : anonHandle(post.id)),
-            h('span', { class: 'muted small' }, 'posted just now'))),
+        postedAsHead(post),
         h('img', { class: 'post-img', src: post.photo, alt: '' }),
-        h('p', { class: 'caption-text big' }, richText(post.caption))));
+        h('p', { class: 'caption-text big' }, h('b', {}, handle(post.poster)), ' ', richText(post.caption))));
     };
 
     return h('section', { class: 'screen' },
@@ -453,7 +454,7 @@ const SCREENS = {
 
   vote() {
     const like = async (post) => {
-      if (post.mine) return toast("You can't like your own post 🙄");
+      if (post.mine) return toast("You wrote that one 🙄");
       if (!state.vote.canVote) return toast("You'll get to vote next round");
       state.vote.myVote = post.id;   // feels instant; server confirms with the next state
       render();
@@ -471,14 +472,11 @@ const SCREENS = {
         like(post);
       } }, h('img', { class: 'post-img', src: post.photo, alt: '' }), burst);
       const card = h('article', { class: `post${post.mine ? ' mine' : ''}` },
-        h('header', { class: 'post-head' },
-          avatar('?', post.id, 'anon'),
-          h('div', { class: 'who' },
-            h('b', {}, post.mine ? 'you (shh)' : anonHandle(post.id)),
-            h('span', { class: 'muted small' }, post.mine ? "can't like your own" : 'posted just now'))),
+        postedAsHead(post),
         photo,
-        h('div', { class: 'post-actions' }, heart),
-        h('p', { class: 'caption-text' }, richText(post.caption)));
+        h('div', { class: 'post-actions' }, heart,
+          post.mine ? h('span', { class: 'muted small' }, "you wrote this one, so you can't like it") : null),
+        h('p', { class: 'caption-text' }, h('b', {}, handle(post.poster)), ' ', richText(post.caption)));
       if (post.mine || !state.vote.canVote) heart.disabled = true;
       updaters.push(() => {
         const on = state.vote.myVote === post.id;
@@ -491,7 +489,7 @@ const SCREENS = {
     return h('section', { class: 'screen' },
       roundLabel(),
       h('h2', { class: 'title' }, 'Like your favorite'),
-      h('p', { class: 'muted' }, 'Tap ❤️ or double-tap a photo. Posters stay secret until the reveal.'),
+      h('p', { class: 'muted' }, 'Tap ❤️ or double-tap a photo to like your favorite.'),
       h('div', { class: 'feed' }, cards),
       statusChips());
   },
