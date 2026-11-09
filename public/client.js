@@ -124,7 +124,7 @@ const gifs = {
       fetch(`https://api.giphy.com/v1/gifs/${endpoint}?${new URLSearchParams({ api_key: key, rating, limit: 50, ...params })}`)
         .then((r) => { if (!r.ok) throw new Error(`Giphy ${endpoint} returned ${r.status}`); return r.json(); });
     const results = await Promise.allSettled([
-      call('trending', { offset: rand(450) }),
+      call('trending', { offset: rand(90) }),   // trending is only ~150 GIFs deep
       call('search', { q: GIF_TOPICS[rand(GIF_TOPICS.length)], offset: rand(200), lang: 'en' }),
     ]);
     const fresh = results
