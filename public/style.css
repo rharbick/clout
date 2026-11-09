@@ -35,7 +35,7 @@ body {
 }
 
 button, input, textarea { font: inherit; color: inherit; }
-img { display: block; max-width: 100%; }
+img, video { display: block; max-width: 100%; }
 
 /* ---- Top bar ------------------------------------------------------------ */
 
@@ -276,7 +276,18 @@ main {
   aspect-ratio: 1;
   transition: transform .15s, border-color .15s, opacity .2s;
 }
-.pick-tile img { width: 100%; height: 100%; object-fit: cover; }
+.pick-tile .tile-media { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.pick-tile .tile-media.gif { object-fit: contain; background: #000; }
+.pick-tile.loading { cursor: default; animation: shimmer 1.2s ease-in-out infinite alternate; }
+
+.giphy-credit {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  color: var(--muted);
+  text-decoration: none;
+}
 .pick-tile:hover { transform: translateY(-2px); border-color: var(--line); }
 .pick-tile.chosen { border-color: var(--pink); transform: scale(1.02); }
 .pick-tile.faded { opacity: .3; }
@@ -301,6 +312,7 @@ main {
 
 .post-img-wrap { position: relative; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .post-img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--card-2); }
+.post-img.gif { max-height: 60dvh; object-fit: contain; background: #000; pointer-events: none; }
 
 .post-actions { display: flex; align-items: center; gap: 10px; padding: 10px 14px 0; }
 .post-actions .points { margin-left: auto; font-weight: 900; color: var(--green); }
@@ -435,6 +447,7 @@ main {
 @keyframes story-in { from { opacity: 0; transform: translateX(24px) scale(.98); } }
 @keyframes pulse { to { transform: scale(1.08); } }
 @keyframes bob { 50% { transform: translateY(-6px); } }
+@keyframes shimmer { to { background: var(--line); } }
 @keyframes burst {
   0% { opacity: 0; transform: scale(.4); }
   20% { opacity: 1; transform: scale(1.1); }

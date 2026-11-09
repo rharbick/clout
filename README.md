@@ -2,7 +2,7 @@
 
 A Jackbox-style party game for phones. Every round:
 
-1. **Pick.** Each player gets two photos and picks one.
+1. **Pick.** Each player gets two random GIFs and picks one.
 2. **Caption.** Every player gets *someone else's* pick and writes its caption **as that person**. The post goes up under their name, so you're putting words in their mouth.
 3. **Showcase.** The posts play under the names they were posted as, one at a time like a story reel, in sync on every phone, so the whole room reads each one together.
 4. **Like.** All the posts show up in a feed, each one looking like the photo picker posted it, and everyone likes their favorite (you can't like your own). Tap the heart or double-tap the photo.
@@ -30,11 +30,27 @@ npm run bots -- auto 5     # 5 bots create a room and play a whole game by thems
 
 For testing with fewer humans you can also lower the minimum: `MIN_PLAYERS=2 npm start`.
 
-## Photos
+## GIFs
 
-By default the game uses random stock photos from [picsum.photos](https://picsum.photos). They're pretty tame (lots of landscapes and coffee cups), and the game gets much funnier with weirder pictures.
+With a Giphy API key, every player picks between two random GIFs from [Giphy](https://giphy.com). Without one, the game falls back to photos.
 
-**To use your own**, drop `.jpg` / `.png` / `.webp` / `.gif` files into `public/photos/` and restart. Those are dealt first, and stock photos only fill in if you run out. Each round uses 2 photos per player, so a 3-round game with 8 players goes through 48.
+**Getting a key:** sign in at the [Giphy developer dashboard](https://developers.giphy.com/dashboard), choose **Create an API Key**, and pick **API** (not SDK). It's free.
+
+**Using it locally:** copy `.env.example` to `.env` and paste the key after `GIPHY_API_KEY=`. The server reads `.env` on startup, and git ignores the file.
+
+**Using it on Render:** the blueprint asks for `GIPHY_API_KEY` when you create the service. On an existing service, add it under **Environment** and Render redeploys.
+
+How it works, and the limits that come with it:
+
+- Giphy requires search and trending requests to come from the browser, so each phone fetches its own GIFs and tells the server which one it picked. The key is sent to players' browsers for this. That's how Giphy web keys are designed to be used, but it means anyone in a game can see it.
+- A new key is a "beta" key limited to **100 Giphy calls an hour**, shared by everyone using it. Each phone makes 2 calls to fill up on about 100 GIFs, which usually lasts a whole game, so a 10-player game costs about 20 calls. If you hit the limit, the game quietly switches to photos until the hour resets. For more, apply for a production key from the dashboard.
+- GIFs are filtered to **PG-13** by default. Set `GIPHY_RATING` to `g`, `pg`, `pg-13`, or `r` to change that.
+- GIFs play as muted looping MP4s, which are a fraction of the size of the `.gif` files. Phones that block autoplaying video, like iPhones in Low Power Mode, get the animated WebP instead.
+- Giphy's terms require showing "Powered by GIPHY" where its API is used, so the pick screen shows it.
+
+### Photos (the fallback)
+
+Without a key, or when Giphy can't be reached, the game deals random stock photos from [picsum.photos](https://picsum.photos). To use your own instead, drop `.jpg` / `.png` / `.webp` / `.gif` files into `public/photos/` and restart. Those are dealt first, and stock photos fill in if you run out.
 
 ## Tuning
 
@@ -72,4 +88,5 @@ public/style.css   styles
 public/photos/     your own photos (optional)
 scripts/bots.js    bot players for testing
 render.yaml        one-click deploy config for Render
+.env.example       template for your local .env (Giphy key)
 ```

@@ -11,3 +11,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
+      # Render asks for this when you create the Blueprint. Leave it empty to play with photos.
+      - key: GIPHY_API_KEY
+        sync: false

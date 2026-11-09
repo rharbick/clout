@@ -50,7 +50,7 @@ function runBot(name, { create = false, code, isDriver = false } = {}) {
       const key = `${s.phase}:${s.round}`;
       if (handled.has(key)) return;
 
-      if (s.phase === 'pick' && s.pick && s.pick.chosen < 0) {
+      if (s.phase === 'pick' && s.pick && !s.pick.picked) {
         handled.add(key);
         await delay();
         emit(socket, 'pick', { index: Math.round(Math.random()) });

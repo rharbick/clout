@@ -63,6 +63,89 @@ function heartIcon() {
   return svg;
 }
 
+// GIFs play as muted, looping MP4s, which are a fraction of the size of the .gif file.
+// If a phone won't autoplay video (iPhones in Low Power Mode won't), swap in the animated WebP.
+function media(m, { cls = 'post-img', sized = true } = {}) {
+  if (m.kind !== 'gif') return h('img', { class: cls, src: m.url, alt: '' });
+  const attrs = { class: `${cls} gif`, style: sized ? `aspect-ratio:${m.width}/${m.height}` : null };
+  const video = h('video', {
+    ...attrs, src: m.mp4, poster: m.still || null, 'aria-label': m.title,
+    autoplay: true, loop: true, muted: true, playsinline: true, preload: 'auto',
+  });
+  video.muted = true;   // the attribute alone doesn't satisfy every browser's autoplay check
+  const fallback = () => video.replaceWith(h('img', { ...attrs, src: m.webp, alt: m.title }));
+  video.addEventListener('error', fallback, { once: true });
+  video.addEventListener('canplay', () => {
+    video.play().catch((err) => { if (err.name === 'NotAllowedError') fallback(); });
+  }, { once: true });
+  return video;
+}
+
+// Each phone keeps its own stack of GIFs. Giphy requires search and trending calls to come
+// from the browser, so a refill is one trending call plus one search on a random topic.
+// A refill usually lasts a whole game, which keeps a group well inside a free key's
+// 100 calls an hour.
+const GIF_TOPICS = [
+  'cat', 'dog', 'dancing', 'awkward', 'fail', 'confused', 'celebrate', 'shocked', 'cooking',
+  'sleepy', 'office', 'party', 'grandma', 'baby', 'wedding', 'gym', 'cringe', 'vibing', 'chaos',
+  'reality tv', 'animals', 'driving', 'sports', 'eating', 'side eye', 'nervous', 'proud',
+  'unimpressed', 'dramatic', 'goat', 'bird', 'horse', 'monday', 'shopping', 'beach', 'kids',
+];
+const rand = (n) => Math.floor(Math.random() * n);
+
+function gifFromGiphy(g) {
+  const o = g.images?.original;
+  if (!o?.mp4 || !o?.webp) return null;
+  return {
+    kind: 'gif', id: g.id, mp4: o.mp4, webp: o.webp,
+    still: g.images['480w_still']?.url || g.images.original_still?.url || '',
+    width: Number(o.width), height: Number(o.height), title: g.title || '',
+  };
+}
+
+const gifs = {
+  stack: [],
+  seen: new Set(),
+  refilling: null,
+  pausedUntil: 0,   // after Giphy fails, give it a rest instead of burning the hourly limit
+
+  async take(n, config) {
+    if (this.stack.length < n && Date.now() < this.pausedUntil) throw new Error('Giphy paused after an error');
+    if (this.stack.length < n) {
+      this.refilling ??= this.refill(config).finally(() => { this.refilling = null; });
+      await this.refilling;
+    }
+    if (this.stack.length < n) throw new Error('Giphy sent back too few GIFs');
+    return this.stack.splice(0, n);
+  },
+
+  async refill({ key, rating }) {
+    const call = (endpoint, params) =>
+      fetch(`https://api.giphy.com/v1/gifs/${endpoint}?${new URLSearchParams({ api_key: key, rating, limit: 50, ...params })}`)
+        .then((r) => { if (!r.ok) throw new Error(`Giphy ${endpoint} returned ${r.status}`); return r.json(); });
+    const results = await Promise.allSettled([
+      call('trending', { offset: rand(450) }),
+      call('search', { q: GIF_TOPICS[rand(GIF_TOPICS.length)], offset: rand(200), lang: 'en' }),
+    ]);
+    const fresh = results
+      .flatMap((r) => (r.status === 'fulfilled' ? r.value.data ?? [] : []))
+      .map(gifFromGiphy)
+      .filter((g) => g && !this.seen.has(g.id) && this.seen.add(g.id));
+    for (let i = fresh.length - 1; i > 0; i--) {
+      const j = rand(i + 1);
+      [fresh[i], fresh[j]] = [fresh[j], fresh[i]];
+    }
+    this.stack.push(...fresh);
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed) console.warn(failed.reason);
+    if (!fresh.length) this.pausedUntil = Date.now() + 5 * 60_000;
+  },
+};
+
+function giphyCredit() {
+  return h('a', { class: 'giphy-credit', href: 'https://giphy.com', target: '_blank', rel: 'noopener' }, 'Powered by GIPHY');
+}
+
 let toastTimer;
 function toast(msg) {
   if (!msg) return;
@@ -138,7 +221,7 @@ socket.on('state', (s) => {
 function screenKey() {
   if (!state) return 'home';
   const { phase, round } = state;
-  if (phase === 'pick') return `pick:${round}:${state.pick ? state.pick.chosen >= 0 : 'watch'}`;
+  if (phase === 'pick') return `pick:${round}:${state.pick ? state.pick.picked : 'watch'}`;
   if (phase === 'caption') return `caption:${round}:${state.caption ? !!state.caption.submitted : 'watch'}`;
   return `${phase}:${round}`;
 }
@@ -237,7 +320,7 @@ function resultCard(r) {
       avatar(r.photographer, r.photographerId),
       h('div', { class: 'who' }, h('b', {}, handle(r.photographer))),
       r.viral ? h('span', { class: 'badge' }, '🔥 viral') : null),
-    h('img', { class: 'post-img', src: r.photo, alt: '' }),
+    media(r.photo),
     h('div', { class: 'post-actions' },
       h('span', { class: `heart static${r.likes ? ' on' : ''}` }, heartIcon()),
       h('b', {}, plural(r.likes, 'like')),
@@ -299,7 +382,7 @@ const SCREENS = {
       h('div', { class: 'card how' },
         h('h3', {}, 'How to play'),
         h('ol', {},
-          h('li', {}, h('b', {}, '📸 Pick'), ' one of two photos.'),
+          h('li', {}, h('b', {}, '📸 Pick'), ' one of two pictures.'),
           h('li', {}, h('b', {}, '✍️ Caption'), " someone else's pick, posting as them. Put words in their mouth."),
           h('li', {}, h('b', {}, '❤️ Like'), ' your favorite post. Every like is +100 followers.'),
           h('li', {}, h('b', {}, '👑 Most followers'), ' at the end wins.'))));
@@ -351,22 +434,53 @@ const SCREENS = {
 
   pick() {
     if (!state.pick) return waitingScreen('🍿', "You're in!", "You'll get dealt in next round.");
-    if (state.pick.chosen >= 0) return waitingScreen('📸', 'Nice pick.', 'Waiting on everyone else…');
+    if (state.pick.picked) return waitingScreen('📸', 'Nice pick.', 'Waiting on everyone else…');
 
-    const tiles = state.pick.options.map((src, i) => h('button', {
-      class: 'pick-tile',
-      onclick: async () => {
-        tiles.forEach((t, j) => t.classList.add(j === i ? 'chosen' : 'faded'));
-        const res = await send('pick', { index: i });
-        if (!res.ok) { tiles.forEach((t) => t.classList.remove('chosen', 'faded')); toast(res.error); }
-      },
-    }, h('img', { src, alt: `Photo option ${i + 1}` })));
+    const grid = h('div', { class: 'pick-grid' });
+    const title = h('h2', { class: 'title' }, state.giphy ? 'Pick a GIF' : 'Pick a photo');
+    const credit = state.giphy ? giphyCredit() : null;
+    const show = (choices, payload) => {
+      const tiles = choices.map((m, i) => h('button', {
+        class: 'pick-tile',
+        onclick: async () => {
+          tiles.forEach((t, j) => t.classList.add(j === i ? 'chosen' : 'faded'));
+          const res = await send('pick', payload(m, i));
+          if (!res.ok) { tiles.forEach((t) => t.classList.remove('chosen', 'faded')); toast(res.error); }
+        },
+      }, media(m, { cls: 'tile-media', sized: false })));
+      grid.replaceChildren(...tiles);
+    };
+    const showGifs = (two) => show(two, (gif) => ({ gif }));
+    const showPhotos = () => {
+      title.textContent = 'Pick a photo';
+      if (credit) credit.hidden = true;
+      show(state.pick.options, (_, index) => ({ index }));
+    };
+
+    if (state.pick.offered) {
+      showGifs(state.pick.offered);
+    } else if (state.giphy) {
+      grid.replaceChildren(h('div', { class: 'pick-tile loading' }), h('div', { class: 'pick-tile loading' }));
+      gifs.take(2, state.giphy)
+        .then((two) => {
+          if (!grid.isConnected) return gifs.stack.unshift(...two);   // round moved on; keep them
+          socket.emit('offer', { gifs: two });
+          showGifs(two);
+        })
+        .catch((err) => {
+          console.warn(err);
+          if (grid.isConnected) showPhotos();
+        });
+    } else {
+      showPhotos();
+    }
 
     return h('section', { class: 'screen' },
       roundLabel(),
-      h('h2', { class: 'title' }, 'Pick a photo'),
+      title,
       h('p', { class: 'muted' }, 'Someone else will post it as you, with a caption they wrote. Choose wisely.'),
-      h('div', { class: 'pick-grid' }, tiles));
+      grid,
+      credit);
   },
 
   caption() {
@@ -408,12 +522,12 @@ const SCREENS = {
     return h('section', { class: 'screen' },
       roundLabel(),
       h('h2', { class: 'title' }, `Post as ${as.name}`),
-      h('p', { class: 'muted' }, `${as.name} picked this photo. Write the caption they're "posting" it with.`),
+      h('p', { class: 'muted' }, `${as.name} picked this. Write the caption they're "posting" it with.`),
       h('article', { class: 'post' },
         h('header', { class: 'post-head' },
           avatar(as.name, as.id),
           h('div', { class: 'who' }, h('b', {}, handle(as.name)), h('span', { class: 'muted small' }, `you're posting as ${as.name}`))),
-        h('img', { class: 'post-img', src: state.caption.photo, alt: 'The photo you are captioning' }),
+        media(state.caption.photo),
         h('div', { class: 'post-actions' }, h('span', { class: 'heart static' }, heartIcon())),
         preview),
       h('div', { class: 'composer card' }, box, h('div', { class: 'row between' }, count, postBtn)));
@@ -422,11 +536,14 @@ const SCREENS = {
   // Posts play one at a time, in sync on every phone, like a story reel.
   showcase() {
     const { posts, perPost } = state.showcase;
-    for (const p of posts) new Image().src = p.photo;   // preload so each swap is instant
-
     const fills = posts.map(() => h('div', { class: 'story-fill' }));
     const counter = h('span', { class: 'muted small' });
-    const stage = h('div', { class: 'story-stage' });
+    // Every card is built up front (hidden) so its picture is already loaded when its turn comes.
+    const cards = posts.map((post) => h('article', { class: `post story${post.mine ? ' mine' : ''}`, hidden: true },
+      postedAsHead(post),
+      media(post.photo),
+      h('p', { class: 'caption-text big' }, h('b', {}, handle(post.poster)), ' ', richText(post.caption))));
+    const stage = h('div', { class: 'story-stage' }, cards);
     let shown = -1;
 
     frameTick = () => {
@@ -437,12 +554,13 @@ const SCREENS = {
       });
       if (idx === shown) return;
       shown = idx;
-      const post = posts[idx];
       counter.textContent = `${idx + 1} of ${posts.length}`;
-      stage.replaceChildren(h('article', { class: `post story${post.mine ? ' mine' : ''}` },
-        postedAsHead(post),
-        h('img', { class: 'post-img', src: post.photo, alt: '' }),
-        h('p', { class: 'caption-text big' }, h('b', {}, handle(post.poster)), ' ', richText(post.caption))));
+      cards.forEach((card, i) => { card.hidden = i !== idx; });
+      const video = cards[idx].querySelector('video');
+      if (video) {
+        video.currentTime = 0;   // start the GIF from its first frame
+        video.play().catch(() => {});
+      }
     };
 
     return h('section', { class: 'screen' },
@@ -470,7 +588,7 @@ const SCREENS = {
         void burst.offsetWidth;   // restart the animation
         burst.classList.add('go');
         like(post);
-      } }, h('img', { class: 'post-img', src: post.photo, alt: '' }), burst);
+      } }, media(post.photo), burst);
       const card = h('article', { class: `post${post.mine ? ' mine' : ''}` },
         postedAsHead(post),
         photo,
@@ -489,7 +607,7 @@ const SCREENS = {
     return h('section', { class: 'screen' },
       roundLabel(),
       h('h2', { class: 'title' }, 'Like your favorite'),
-      h('p', { class: 'muted' }, 'Tap ❤️ or double-tap a photo to like your favorite.'),
+      h('p', { class: 'muted' }, 'Tap ❤️ or double-tap a post to like your favorite.'),
       h('div', { class: 'feed' }, cards),
       statusChips());
   },

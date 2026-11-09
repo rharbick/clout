@@ -8,6 +8,9 @@ const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 
+// Local settings like GIPHY_API_KEY can live in a .env file next to this one.
+try { process.loadEnvFile(); } catch { /* no .env file, which is normal in production */ }
+
 // ---- Tunables ---------------------------------------------------------------
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -40,9 +43,28 @@ const FALLBACK_CAPTIONS = [
   'core memory unlocked',
 ];
 
-// ---- Photos -----------------------------------------------------------------
-// Drop your own images into public/photos and they're used first.
-// Stock photos from picsum.photos fill in when those run out.
+// ---- Pictures ---------------------------------------------------------------
+// With GIPHY_API_KEY set, every phone fetches its own GIFs from Giphy (Giphy requires
+// search and trending calls to come from the browser) and tells the server which one
+// it picked. The server still deals two photos per player each round as a backup for
+// when Giphy is unreachable: yours from public/photos first, then stock photos.
+
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY?.trim() || '';
+const GIPHY_RATING = ['g', 'pg', 'pg-13', 'r'].includes(process.env.GIPHY_RATING) ? process.env.GIPHY_RATING : 'pg-13';
+const GIPHY_URL = /^https:\/\/(?:media\d*|i)\.giphy\.com\/[\w.\-\/%?=&]+$/;
+
+// GIFs arrive from players' phones, so only accept the fields we use, pointing at Giphy.
+function cleanGif(gif) {
+  if (!gif || typeof gif !== 'object' || gif.kind !== 'gif') return null;
+  const { id, mp4, webp, still = '', title = '' } = gif;
+  const width = Number(gif.width);
+  const height = Number(gif.height);
+  const okUrl = (u) => typeof u === 'string' && u.length <= 600 && GIPHY_URL.test(u);
+  if (typeof id !== 'string' || !/^[A-Za-z0-9]{1,64}$/.test(id)) return null;
+  if (!okUrl(mp4) || !okUrl(webp) || (still && !okUrl(still))) return null;
+  if (!(width > 0 && width <= 4000 && height > 0 && height <= 4000)) return null;
+  return { kind: 'gif', id, mp4, webp, still, width, height, title: String(title).slice(0, 120) };
+}
 
 const PHOTO_DIR = path.join(__dirname, 'public', 'photos');
 const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -79,7 +101,7 @@ function buildDeck() {
 
 function drawPhoto(room) {
   if (!room.deck.length) room.deck = buildDeck();
-  return room.deck.shift();
+  return { kind: 'image', url: room.deck.shift() };
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -229,7 +251,8 @@ function startRound(room) {
   room.roundData = {
     participants,
     options: new Map(participants.map((id) => [id, [drawPhoto(room), drawPhoto(room)]])),
-    picks: new Map(),        // playerId → index of the photo they chose
+    offered: new Map(),      // playerId → the two GIFs their phone fetched, if any
+    picks: new Map(),        // playerId → the picture they chose
     assignments: new Map(),  // captionerId → id of the player whose photo they caption
     drafts: new Map(),
     captions: new Map(),
@@ -241,13 +264,13 @@ function startRound(room) {
 }
 
 function pickedPhoto(rd, playerId) {
-  return rd.options.get(playerId)[rd.picks.get(playerId)];
+  return rd.picks.get(playerId);
 }
 
 function beginCaption(room) {
   const rd = room.roundData;
   for (const id of rd.participants) {
-    if (!rd.picks.has(id)) rd.picks.set(id, crypto.randomInt(2));
+    if (!rd.picks.has(id)) rd.picks.set(id, pickRandom(rd.offered.get(id) ?? rd.options.get(id)));
   }
   // Rotate a shuffled circle so nobody ever gets their own photo.
   const order = shuffle(rd.participants);
@@ -372,6 +395,7 @@ function viewFor(room, me) {
     serverNow: Date.now(),
     minPlayers: MIN_PLAYERS,
     maxPlayers: MAX_PLAYERS,
+    giphy: GIPHY_API_KEY ? { key: GIPHY_API_KEY, rating: GIPHY_RATING } : null,
     me: { id: me.id, name: me.name, isHost: room.hostId === me.id, playing: inRound(me.id) },
     players: [...room.players.values()].map((p) => ({
       id: p.id,
@@ -387,7 +411,11 @@ function viewFor(room, me) {
 
   const playing = inRound(me.id);
   if (room.phase === 'pick' && playing) {
-    view.pick = { options: rd.options.get(me.id), chosen: rd.picks.get(me.id) ?? -1 };
+    view.pick = {
+      options: rd.options.get(me.id),
+      offered: rd.offered.get(me.id) ?? null,   // lets a reloaded phone show the same GIFs
+      picked: rd.picks.has(me.id),
+    };
   } else if (room.phase === 'caption' && playing) {
     const posterId = rd.assignments.get(me.id);
     view.caption = {
@@ -536,13 +564,23 @@ io.on('connection', (socket) => {
     startGame(room);
   });
 
-  act('pick', (room, player, { index }, reply) => {
+  // A phone tells us which GIFs it's showing, so the timer can pick one if the player doesn't.
+  act('offer', (room, player, { gifs }) => {
+    const rd = room.roundData;
+    if (room.phase !== 'pick' || !rd.participants.includes(player.id) || rd.picks.has(player.id)) return;
+    const clean = Array.isArray(gifs) ? gifs.slice(0, 2).map(cleanGif).filter(Boolean) : [];
+    if (clean.length === 2) rd.offered.set(player.id, clean);
+  });
+
+  // Pick a GIF the phone fetched ({ gif }), or one of the backup photos ({ index }).
+  act('pick', (room, player, { index, gif }, reply) => {
     const rd = room.roundData;
     if (room.phase !== 'pick' || !rd.participants.includes(player.id) || rd.picks.has(player.id)) {
       return reply({ ok: false });
     }
-    if (index !== 0 && index !== 1) return reply({ ok: false });
-    rd.picks.set(player.id, index);
+    const choice = gif !== undefined ? cleanGif(gif) : rd.options.get(player.id)[index];
+    if (!choice) return reply({ ok: false, error: "Couldn't use that one. Try the other?" });
+    rd.picks.set(player.id, choice);
     reply({ ok: true });
     if (!maybeAdvance(room)) broadcast(room);
   });
@@ -626,7 +664,8 @@ server.listen(PORT, async () => {
       if (a.family === 'IPv4' && !a.internal) console.log(`  Phones on your Wi-Fi: http://${a.address}:${PORT}`);
     }
   }
-  console.log(custom
-    ? `  Photos: ${custom} of yours from public/photos, then stock photos\n`
-    : `  Photos: stock photos from picsum.photos (drop your own into public/photos)\n`);
+  const photos = custom ? `${custom} of yours from public/photos, then stock photos` : 'stock photos from picsum.photos';
+  console.log(GIPHY_API_KEY
+    ? `  Pictures: GIFs from Giphy (rating ${GIPHY_RATING}), with ${photos} as backup\n`
+    : `  Pictures: ${photos}. Set GIPHY_API_KEY to play with GIFs instead.\n`);
 });
